@@ -1,0 +1,294 @@
+package LLD.ChessGame.V1;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Scanner;
+
+/*
+ * 
+ * Pieces
+ * Board
+ * Game
+ * Player
+ * 
+ * 
+ */
+
+enum Color {WHITE, BLACK}
+enum GameState {RUNNING, OVER}
+enum ValidationEnum {PASSED, STALEMATE, OWN_KING_IN_CHECK, OPPONENT_IN_CHECK, CHECK_N_MATE};
+
+class ValidateGameDAO {
+    String message;
+    ValidationEnum validationState;
+}
+
+abstract class Piece {
+    private String name;
+    private Position position;
+    private Color color;
+    private Board board;
+
+    public Piece(String name, Position position, Color color, Board board) {
+        this.name = name;
+        this.position = position;
+        this.color = color;
+        this.board = board;
+    }
+
+    abstract List<Position> getValidPositions();
+
+    public String getName() {
+        return name;
+    }
+
+    public Position getPosition() {
+        return position;
+    }
+
+    public Color getColor() {
+        return color;
+    }
+
+    public Board getBoard() {
+        return board;
+    }
+}
+
+class King extends Piece {
+
+    public King(String name, Position position, Color color, Board board) {
+        super("King", position, color, board);
+    }
+
+    @Override
+    public List<Position> getValidPositions() {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'getValidPositions'");
+    }
+
+}
+
+class Pawn extends Piece {
+
+    public Pawn(String name, Position position, Color color, Board board) {
+        super("Pawn", position, color, board);
+    }
+
+    @Override
+    public List<Position> getValidPositions() {
+        List<Position> positions = new ArrayList<>();
+        Position pos = getPosition();
+        int direction = this.getColor() == Color.WHITE? 1: -1;
+        boolean isInitialPos = (getColor() == Color.WHITE && pos.getRow()==2) || (getColor() == Color.BLACK && pos.getRow()==getBoard().getRowCount()-1);
+
+        for (int i=1; i<=(isInitialPos?2:1); i++){
+            pos = new Position(pos.getRow()+direction, pos.getCol());
+            if (getBoard().isValid(pos) && getBoard().isEmpty(pos)) {
+                positions.add(pos);
+            } else break;
+        }
+        
+        if (!isInitialPos) {
+            pos = new Position(getPosition().getRow()+direction, getPosition().getCol()-1);
+            if (getBoard().isValid(pos) && getBoard().isEmpty(pos)) {positions.add(pos);}
+            pos = new Position(getPosition().getRow()+direction, getPosition().getCol()+1);
+            if (getBoard().isValid(pos) && getBoard().isEmpty(pos)) {positions.add(pos);}
+        }
+        
+        return positions;
+    }
+    
+}
+
+class Position {
+    private int row, col;
+
+    public Position(int row, int col) {
+        this.row = row;
+        this.col = col;
+    }
+
+    public int getRow() {
+        return row;
+    }
+
+    public int getCol() {
+        return col;
+    }
+}
+
+interface Board {
+    int getRowCount();
+    int getColCount();
+    boolean hasEnemy(Color color);
+    boolean isEmpty(Position position);
+    boolean isValid(Position position);
+    Piece getPiece(Position pos);
+}
+
+class Player {
+    private final Color color;
+    private final String name;
+    
+    private List<Piece> capturedPieces;
+    private PlayerStrategy playStrategy;
+
+    public Player(String name, Color color, PlayerStrategy playStrategy) {
+        this.name = name;
+        this.color = color;
+        this.playStrategy = playStrategy;
+        this.capturedPieces = new ArrayList<>();
+    }
+
+    public Color getColor() {
+        return color;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void makeAMove(Board board){
+        playStrategy.makeAMove(this, board);
+    }
+}
+
+interface PlayerStrategy {
+    void makeAMove(Player player, Board board);
+}
+
+class ConsolePlayer implements PlayerStrategy {
+
+    @Override
+    public void makeAMove(Player player, Board board) {
+        Position fromPos, toPos;
+        Scanner sc = new Scanner(System.in);
+
+        Piece piece;
+
+        while (true) {
+            System.out.println("Enter piece current row: ");
+            int row = sc.nextInt();
+            System.out.println("Enter piece current col: ");
+            int col = sc.nextInt();
+            fromPos = new Position(row, col);
+
+            if (!board.isEmpty(fromPos)) continue;
+            piece = board.getPiece(fromPos);
+            if (piece == null || piece.getColor() != player.getColor()) {
+                System.out.println("Choosen invalid block, retry...");
+            } else break;
+        }
+
+        List<Position> validPositions = piece.getValidPositions();
+
+        while (true) {
+            System.out.println("Enter piece target row: ");
+            int row = sc.nextInt();
+            System.out.println("Enter piece target col: ");
+            int col = sc.nextInt();
+            toPos = new Position(row, col);
+
+            if (!validPositions.contains(toPos)) {
+                System.out.println("Invalid target block, retry...");
+            } else break;
+        }
+
+        sc.close();
+    }
+}
+class EasyAIPlayer implements PlayerStrategy {}
+
+
+class PlayerFactory {
+    public static Player makePlayer(String name, String type, Color color) {
+        switch (type) {
+            case "human":
+                return new Player(name, color, new ConsolePlayer());
+            case "easy-ai":
+                return new Player(name, color, new EasyAIPlayer());
+            default:
+                return new Player(name, color, new ConsolePlayer());
+        }
+    }
+}
+
+class Game {
+    Board board;
+    Player whitePlayer;
+    Player blackPlayer;
+    Player currentPlayer;
+    GameState state;
+
+    List<BoardChangeRule> boardChangeRules;
+    List<GameStateValidator> gameStateCheckRules;
+
+    public void start() {
+
+        while (state != GameState.OVER) {
+            currentPlayer.makeAMove(board);
+
+            boolean wrongTurn = false;
+
+            for (GameStateValidator rule: gameStateCheckRules) {
+                ValidateGameDAO res = rule.evaluate(currentPlayer, board);
+                if (res.validationState != ValidationEnum.PASSED) {
+                    switch (res.validationState) {
+                        case OWN_KING_IN_CHECK:
+                            wrongTurn = true;
+                            System.out.println("Can't make this move, own king is in check.");
+                            break;
+                        case OPPONENT_IN_CHECK:
+                            System.out.println("Great move, opponent is in check.");
+                            break;
+                        case CHECK_N_MATE:
+                            System.out.println(currentPlayer.getName() + " Wins, check n mate.");
+                            state = GameState.OVER;
+                            break;
+                        case STALEMATE:
+                            state = GameState.OVER;
+                            System.out.println("No valid move avaialble, Game Draw");
+                            break;
+                        default:
+                            break;
+                    }
+
+                    if (state == GameState.OVER || wrongTurn) break;
+                }
+            }
+
+            if (wrongTurn) continue;
+    
+            for (BoardChangeRule rule: boardChangeRules) {
+                rule.apply(blackPlayer, board);
+            }
+
+            switchPlayer();
+        }
+
+    }
+
+    public void switchPlayer() {
+        currentPlayer = currentPlayer == whitePlayer? blackPlayer: whitePlayer;
+    }
+}
+
+interface BoardChangeRule {
+    boolean apply(Player player, Board board);
+
+}
+interface GameStateValidator {
+    ValidateGameDAO evaluate(Player player, Board board);
+}
+
+// class PawnPromotion implements BoardChangeRule {
+
+// }
+// class CheckForCheck implements GameStateValidator {
+
+// }
+
+public class ChessGame {
+    
+}
